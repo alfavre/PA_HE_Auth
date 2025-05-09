@@ -6,9 +6,9 @@ import os
 app = Flask(__name__)
 app.secret_key = os.urandom(16)  # Required for sessions
 
-PEPPER = "my_secret_pepper"  # You should store this securely (e.g., env var)
+PEPPER = "my_secret_pepper"  # move this in own file
 
-USER_DB = "users.json"
+USER_DB = "db/users.json"
 
 
 def load_users():
@@ -39,6 +39,10 @@ def register():
 
         if username in users:
             return "User already exists"
+        
+        #Add the passport field here
+
+        #Add the call to passport encryption here
 
         salt = os.urandom(8).hex()
         hashed = hash_password(password, salt)
