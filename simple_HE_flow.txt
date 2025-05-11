@@ -1,0 +1,7 @@
+1. HE encrypt birthdate ts
+2. HE encrypt today ts
+3. HE evaluate with age circuit (consider custom age circuit)
+4. HE decrypt result
+5. get result
+
+I WILL NOT DO: moving inside the passport, all entries will be labeled and stored
