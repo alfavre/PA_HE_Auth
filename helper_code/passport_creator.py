@@ -52,11 +52,12 @@ def get_user_data():
     try:
         birthdate_obj = datetime.datetime.strptime(birthdate_str, "%Y-%m-%d")
         birthdate_ts = int(birthdate_obj.timestamp())
+        birthdate_days = birthdate_ts // 86400
     except ValueError:
         print("Invalid date format. Please use YYYY-MM-DD.")
         exit(1)
 
-    return first_name, last_name, birthdate_ts
+    return first_name, last_name, birthdate_days
 
 
 # Create hash of user fields
@@ -115,10 +116,10 @@ def main():
         save_rsa_public_key(private_key, PUB_KEY_FILE)
         print("Keys written in file.")
     else:
-        first_name, last_name, birthdate_ts = get_user_data()
-        entry_hash = create_hash(first_name, last_name, birthdate_ts)
+        first_name, last_name, birthdate_days = get_user_data()
+        entry_hash = create_hash(first_name, last_name, birthdate_days)
         signature = sign_hash(entry_hash)
-        entry = create_entry(first_name, last_name, birthdate_ts, entry_hash, signature)
+        entry = create_entry(first_name, last_name, birthdate_days, entry_hash, signature)
         append_to_data(entry)
         print("Entry saved to passports_clear.json")
 
