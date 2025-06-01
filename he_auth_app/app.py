@@ -8,42 +8,67 @@ from models import UserData
 import constants
 import utils
 
+PRIV_KEY_NAME: str = "privkey_av.bin"
+
 app = Flask(__name__)
 app.secret_key = os.urandom(16)  # Required for sessions
 
 
 # cpp wrapper
 # it may look slow, but it will never be as slow as HE
-def call_c_age_main(a: int, b: int) -> int:
+def call_c_age_main(a: str, b: str, ct_result_path:str):
     result = subprocess.run(
-        [".cbin/age_verification_main", str(a), str(b)],
+        ["cbin/age_verification_main", a+".bin", b+".bin"],
         capture_output=True,
         text=True,
         check=True,
     )
-    return int(result.stdout.strip())
+    subprocess.run(
+        ["mv", "ct_av_result.bin", ct_result_path + ".bin"],
+        capture_output=False,
+        text=True,
+        check=True,
+    )
 
 
-def encrypt_passport(passport_str: str) -> tuple[str, str, str, str, str]:
+def encrypt_passport(passport_str: str, username :str) -> tuple[str,str,str]:
+    filename: str = "ct_" + username + "_birthdate"
     passport_json = json.loads(passport_str)
     # we will call call_c_age_encrypt here
     # we will load the pub key here
-    a = call_c_age_encrypt(passport_json["first_name"], 0)
-    b = call_c_age_encrypt(passport_json["last_name"], 0)
-    c = call_c_age_encrypt(passport_json["birthdate"], 0)
-    return (a, b, c, passport_json["hash"], passport_json["signature"])
+    #a = call_c_age_encrypt(passport_json["first_name"], 0)
+    #b = call_c_age_encrypt(passport_json["last_name"], 0)
+    call_c_age_encrypt(passport_json["birthdate"], filename)
+    return (filename, passport_json["hash"], passport_json["signature"])
 
 
 # with public key
 # cpp wrapper
-def call_c_age_encrypt(my_str: str, pub_key_age) -> str:
-    return my_str + "ct"
+def call_c_age_encrypt(my_int: int, ct_file_name: str):
+    result = subprocess.run(
+        ["cbin/age_verification_encrypt", str(my_int)],
+        capture_output=False,
+        text=True,
+        check=True,
+    )
+    subprocess.run(
+        ["mv", "ct_av.bin", ct_file_name + ".bin"],
+        capture_output=False,
+        text=True,
+        check=True,
+    )
 
 
 # with private key
 # cpp wrapper
-def call_c_age_decrypt(my_str_ct, priv_key_age) -> str:
-    return my_str_ct + "pt"
+def call_c_age_decrypt(ct_file_name) -> int:
+    result = subprocess.run(
+        ["cbin/age_verification_decrypt", PRIV_KEY_NAME, ct_file_name + ".bin"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return int(result.stdout.strip().splitlines()[-1])
 
 
 def load_users():
@@ -61,6 +86,8 @@ def load_user(username):
         with open(constants.USER_DB, "r") as f:
             try:
                 users = json.load(f)
+                print("in load: " + str(type(users)))
+                print("in load: " + str(type(users.get(username))))
                 return users.get(username, None)
             except json.JSONDecodeError:
                 return None
@@ -89,8 +116,8 @@ def register():
             return "User already exists"
 
         # Add the call to encryption here
-        f_name_ct, l_name_ct, birthdate_ct, passport_hash, passport_signature = (
-            encrypt_passport(passport_clear)
+        birthdate_ct_file_name, passport_hash, passport_signature = (
+            encrypt_passport(passport_clear, username)
         )
 
         salt = os.urandom(8).hex()
@@ -98,15 +125,15 @@ def register():
 
         user = UserData(
             username=username,
-            password=hashed_password,
-            passport_first_name=f_name_ct,
-            passport_last_name=l_name_ct,
-            passport_birthdate=birthdate_ct,
+            password_hash=hashed_password,
+            salt=salt,
+            #passport_first_name=f_name_ct,
+            #passport_last_name=l_name_ct,
+            passport_birthdate_path=birthdate_ct_file_name,
             passport_hash=passport_hash,
             passport_signature=passport_signature,
         )
-        user_json = json.dumps(user.__dict__)
-        users[username] = user_json
+        users[username] = user.__dict__
         save_users(users)
         return "User registered!"
     return render_template("register.html")
@@ -122,9 +149,11 @@ def login():
         # vulberable to timing attacks
         if username not in users:
             return "Invalid credentials"
+        
+        user_data = users[username]
 
-        salt = users[username]["salt"]
-        expected_hash = users[username]["hash"]
+        salt = user_data["salt"]
+        expected_hash = user_data["password_hash"]
         if hash_password(password, salt) == expected_hash:
             session["user"] = username
             return redirect(url_for("dashboard"))
@@ -149,14 +178,22 @@ def verify_age():
     my_user_data = load_user(session["user"])
     user = UserData.from_json(my_user_data)
 
+    result = subprocess.run(
+        ["pwd"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
 
-    today_pt:int = utils.get_today_in_days()
-    today_ct:str = call_c_age_encrypt(today_pt,0)
+    today_ct_path = "ct_" + user.username + "_today"
+    today_pt: int = utils.get_today_in_days()
+    call_c_age_encrypt(today_pt, today_ct_path)
 
 
-    delta_ct: str = call_c_age_main(today_ct,user.passport_birthdate)
-    delta_pt: int = call_c_age_decrypt(delta_ct,0)
-    result: bool = delta_pt > 4745
+    result_ct_path:str= "ct_result_" + user.username
+    call_c_age_main(today_ct_path, user.passport_birthdate_path, result_ct_path)
+    delta_pt: int = call_c_age_decrypt(result_ct_path)
+    result: bool = delta_pt > 4745 # thirteen
 
     return f"<h1>{result}</h1><br><a href='/dashboard'>Back to Dashboard</a>"
 
@@ -166,7 +203,7 @@ def verify_passport():
     if "user" not in session:
         return redirect(url_for("login"))
 
-    result = 'foobar' #placeholder_call("verify_passport_signature()", "HE_passport")
+    result = "foobar"  # placeholder_call("verify_passport_signature()", "HE_passport")
     return f"<h1>{result}</h1><br><a href='/dashboard'>Back to Dashboard</a>"
 
 
