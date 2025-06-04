@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import subprocess
+import time
 
 from models import UserData
 import constants
@@ -186,14 +187,17 @@ def verify_age():
     )
 
     today_ct_path = "ct_" + user.username + "_today"
-    today_pt: int = utils.get_today_in_days()
+    today_pt: int = utils.get_today_in_days() - 4745 # minus 4745
+    start_time = time.time()
     call_c_age_encrypt(today_pt, today_ct_path)
 
 
     result_ct_path:str= "ct_result_" + user.username
     call_c_age_main(today_ct_path, user.passport_birthdate_path, result_ct_path)
     delta_pt: int = call_c_age_decrypt(result_ct_path)
-    result: bool = delta_pt > 4745 # thirteen
+    end_time = time.time()
+    result: bool = delta_pt > 0 # thirteen
+    print(f"execution time is: {end_time - start_time} second")
 
     return f"<h1>{result}</h1><br><a href='/dashboard'>Back to Dashboard</a>"
 
